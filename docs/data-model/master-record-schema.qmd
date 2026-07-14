@@ -1,0 +1,71 @@
+---
+title: "Master record schema"
+description: "Structure and known inconsistencies in the pipeline master-record JSONL format."
+date: last-modified
+---
+
+This page records the shared JSONL structure observed in `master_records_v4.jsonl`. Later pipeline stages extend the same core record with clinical, IGH, and FDA assertions before `data_model/build_data_model.py` normalizes it.
+
+::: {.callout-warning}
+This is a descriptive inspection of a staged JSONL file, not the source of truth for relational tables. Table contracts live in `data_model/schema/*.yaml`.
+:::
+
+## Top-Level Fields
+
+| Field | Type | Example Value | Description |
+|-------|------|---------------|-------------|
+| `canonical_key` | String | `"lepirudin"` | Primary key for the record (normalized name) |
+| `resolution` | Object | `{"status": "drugbank_baseline", "path": ["drugbank"]}` | Information about how the record was resolved |
+| `identifiers` | Array | `[{"type": "DrugBank", "value": "DB00001", "source": "DrugBank"}]` | List of identifiers from various sources |
+| `synonyms` | Array | `[{"value": "Hirudin variant-1", "source": "DrugBank Vocabulary"}]` | List of synonyms |
+| `membership` | Array | `[...]` | List of source-specific record entries (the core for `product_events`) |
+| `enrichment` | Object | `{"rxnorm": {"rxcuis": ["237057"]}, "fda": null}` | Additional enriched data |
+
+## Membership Structure
+
+The `membership` array contains objects with varying fields depending on the source.
+
+| Field | Type | Example Value | Notes |
+|-------|------|---------------|-------|
+| `scope` | String | `"DrugBank"`, `"NRA-South Africa"`, `"WHO"` | The source or scope of the entry |
+| `original_name` | String | `"Lepirudin"` | The name as it appeared in the source |
+| `drugbank_id` | String | `"DB00001"` | Present for DrugBank entries |
+| `drugbank_type` | String | `"approved"`, `"biotech"` | Present for DrugBank entries |
+| `drug_type` | String | `"BiotechDrug"` | Present for DrugBank entries |
+| `nra_id` | String | `"51/30.1/0678"` | Present for NRA entries |
+| `approval_date` | String | `"2020-02-18"` | ISO date, present for NRA entries |
+| `status` | String | `"Registered"`, `"Canceled"` | Regulatory status |
+| `product_name` | String | `"AmgEVITA 40 mg"` | Specific product name in NRA entries |
+| `generic_name` | String | `"ADALIMUMAB"` | Generic name in NRA entries |
+| `original_atc_code` | String | `"B01AE02"` | ATC code from source |
+| `match_phase` | String | `"phase1"` | Integration phase |
+| `match_method` | String | `"name_only"` | Integration method |
+| `eml_value` | String | `"lepirudin"` | Value matched in EML |
+| `master_value` | String | `"lepirudin"` | Value matched in master |
+| `nct_id` | String | `"NCT01234567"` | Clinical trial ID (clinical events) |
+| `overall_status` | String | `"COMPLETED"` | Clinical trial status |
+
+## Identifiers Structure
+
+| Field | Type | Example Value |
+|-------|------|---------------|
+| `type` | String | `"DrugBank"`, `"CAS"`, `"RxNorm"`, `"ATC"` |
+| `value` | String | `"DB00001"` |
+| `source` | String | `"DrugBank"`, `"DrugBank XML"` |
+
+## Synonyms Structure
+
+Can be a simple string or an object.
+
+| Field | Type | Example Value |
+|-------|------|---------------|
+| `value` | String | `"Lepirudin"` |
+| `source` | String | `"DrugBank Vocabulary"` |
+
+## Inconsistencies and Observations
+
+- **Synonyms**: Sometimes strings, sometimes objects.
+- **Membership**: Highly dynamic. Some fields like `approval_date` are only present for NRA sources. `nct_id` and `overall_status` are for clinical sources.
+- **Dates**: Predominantly ISO 8601 (YYYY-MM-DD), but need careful parsing.
+- **Missing Fields**: Many records lack optional fields like `original_atc_code` or `enrichment`.
+- **Duplicate Membership**: Some records have multiple identical membership entries (seen in NRA-South Africa examples).

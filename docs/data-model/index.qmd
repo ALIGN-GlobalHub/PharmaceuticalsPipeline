@@ -1,0 +1,25 @@
+---
+title: "Relational data model"
+description: "How master records are normalized for analysis, export, and the dashboard."
+date: last-modified
+---
+
+The transformation layer in `data_model/` converts the pipeline's nested JSONL master records into a normalized DuckDB model and exports CSV tables for Datasette or Supabase.
+
+## Core entities
+
+- `products`: canonical product records.
+- `product_membership`: source membership and match provenance.
+- `product_identifiers` and `product_synonyms`: normalized external identifiers and names.
+- `essential_medicines`, `market_authorization`, `product_qualification`, and `igh_membership`: source-facing relational marts.
+- `clinical_trials`, `clinical_trial_product_links`, `clinical_trial_terms`, `clinical_trial_results`, and `clinical_trial_raw`: consolidated clinical evidence.
+
+## Implementation sources
+
+- `data_model/schema/*.yaml` defines table contracts.
+- `data_model/build_data_model.py` creates the DuckDB model and CSV exports.
+- `data_model/views/create_views.sql` defines analytical and dashboard views.
+- `data_model/generate_supabase_schema.py` generates PostgreSQL/Supabase DDL.
+
+See [Master record schema](master-record-schema.qmd) for the upstream JSONL structure that feeds this layer.
+

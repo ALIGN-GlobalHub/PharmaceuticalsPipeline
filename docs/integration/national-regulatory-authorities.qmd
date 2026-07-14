@@ -1,0 +1,187 @@
+---
+title: "NRA Integration and Matching Report"
+description: "Documentation of the process for integrating National Regulatory Authority (NRA) product data into the ALIGN master database, including hierarchical matching and enrichment."
+author: "ALIGN-Pipeline"
+date: last-modified
+---
+
+# Overview
+
+This report documents the integration of **National Regulatory Authority (NRA)** product data into the ALIGN master database. The process ensures that approved products from multiple countries are correctly anchored to existing records and that new products are added with full provenance.
+
+# Integration Methodology
+
+The script `scripts/integrate_nra.py` implements a two-phase integration strategy.
+
+## Phase 1: Direct Name Matching
+
+Phase 1 attempts to match NRA products directly against existing master records using normalized names.
+
+Matching priority:
+
+1. `generic_name`
+2. `product_name` (fallback)
+
+### Match Types
+- **`name_only`**: Match based on normalized name
+
+## Phase 2: Enrichment and Identifier Matching
+
+Unmatched items undergo enrichment via RxNorm, UMLS, and optional LLM normalization.
+
+- **Match Found:** If enrichment identifies a match (e.g., via RxCUI or ATC), the existing master record is updated.
+- **New Product:** If no match is found, a new master record is created (if clinically anchored via RxNorm or ATC).
+
+# Data Schema and Provenance
+
+Each integrated NRA product creates a `membership` entry with:
+
+- `scope`: Source (e.g., NRA-Kenya, NRA-South Africa)
+- `match_phase`: `phase1` or `phase2`
+- `match_method`: Matching logic used
+- `value_nra`: Value used for matching
+- `value_master`: Corresponding value in master
+
+Additional metadata:
+- `product_name`
+- `generic_name`
+- `nra_id`
+- `approval_date`
+- `dosage_form`
+- `strength`
+
+# Integration Summary
+
+```{python}
+#| label: load-data
+import pandas as pd
+import json
+import os
+
+def load_jsonl(filepath):
+    if not os.path.exists(filepath):
+        return []
+    with open(filepath, "r") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+master_path = "../data/pipeline/master_records_v3.jsonl"
+master_records = load_jsonl(master_path)
+```
+
+```{python}
+#| label: match-statistics
+#| tbl-cap: "Overall Match Statistics"
+
+nra_memberships = []
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if str(m.get("scope", "")).startswith("NRA-"):
+            nra_memberships.append(m)
+
+if nra_memberships:
+    total_memberships = len(nra_memberships)
+    phase_counts = {"phase1": 0, "phase2": 0}
+    method_counts = {}
+
+    for m in nra_memberships:
+        phase = m.get("match_phase")
+        method = m.get("match_method")
+
+        if phase:
+            phase_counts[phase] = phase_counts.get(phase, 0) + 1
+        if method:
+            method_counts[method] = method_counts.get(method, 0) + 1
+
+    stats_df = pd.DataFrame([
+        {"Category": "Total NRA Memberships", "Count": total_memberships},
+        {"Category": "Phase 1 Matches", "Count": phase_counts.get("phase1", 0)},
+        {"Category": "Phase 2 Matches", "Count": phase_counts.get("phase2", 0)}
+    ])
+
+    display(stats_df)
+else:
+    print("No NRA memberships found.")
+```
+
+# Unique Product Count
+```{python}
+seen = set()
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if str(m.get("scope", "")).startswith("NRA-"):
+            key = (m.get("scope"), m.get("original_name"))
+            seen.add(key)
+
+print("Unique NRA products:", len(seen))
+
+
+matched = set()
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if str(m.get("scope", "")).startswith("NRA-"):
+            if m.get("match_phase") in ["phase1", "phase2"]:
+                key = (m.get("scope"), m.get("original_name"))
+                matched.add(key)
+
+print("Matched NRA products:", len(matched))
+```
+
+# Match Provenance Examples
+
+```{python}
+
+#| label: provenance-examples
+#| tbl-cap: "Sample Match Provenance"
+
+rows = []
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if m.get("scope", "").startswith("NRA-") and m.get("match_phase"):
+            rows.append({
+                "Canonical Name": rec.get("canonical_key"),
+                "Scope": m.get("scope"),
+                "Phase": m.get("match_phase"),
+                "Method": m.get("match_method"),
+                "NRA Value": m.get("value_nra"),
+                "Master Value": m.get("value_master")
+            })
+            if len(rows) >= 10: break
+    if len(rows) >= 10: break
+
+pd.DataFrame(rows)
+```
+
+# New Product Integration
+```{python}
+#| label: new-products
+#| tbl-cap: "New Products Added from NRA"
+
+rows = []
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if (
+            str(m.get("scope", "")).startswith("NRA-")
+            and m.get("match_phase") in ["phase1", "phase2"]
+        ):
+            rows.append({
+                "Canonical Name": rec.get("canonical_key"),
+                "Scope": m.get("scope"),
+                "Phase": m.get("match_phase"),
+                "Method": m.get("match_method"),
+                "NRA Value": m.get("value_nra"),
+                "Master Value": m.get("value_master")
+            })
+            if len(rows) >= 10: break
+    if len(rows) >= 10: break
+
+pd.DataFrame(rows)
+```
+
+# Conclusion
+
+The NRA integration pipeline extends the ALIGN master database by incorporating nationally approved products. Through hierarchical matching and enrichment, the system balances precision (via RxNorm and ATC) with recall (via name matching and LLM normalization), ensuring robust and scalable integration across diverse regulatory datasets.

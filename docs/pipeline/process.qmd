@@ -1,0 +1,277 @@
+---
+title: "Detailed pipeline process"
+description: "A guided walkthrough of how a source record moves through identity resolution, evidence attachment, and relational publication."
+author: "ALIGN Consortium"
+date: last-modified
+---
+
+## How to read this walkthrough
+
+This page follows the transformation of the registry rather than only listing scripts. At each stage, it explains:
+
+- what enters the stage;
+- why the source cannot be joined directly without resolution;
+- which matching or filtering decisions are made;
+- where accepted, unmatched, and review records go; and
+- what the next stage can assume about the output.
+
+The pipeline is cumulative. Every later master file contains the canonical products and accepted evidence from the earlier stages. Consequently, an incorrect identity decision early in the process can affect several downstream integrations. The audit fields in `membership`, enrichment caches, unmatched outputs, and relational QA views are therefore part of the pipeline—not optional by-products.
+
+## 1. Establish the canonical baseline
+
+### Purpose
+
+The baseline defines the initial product universe and supplies the identity signals used by later integrations. DrugBank is used because it provides stable accessions, product names, synonyms, modality and status categories, and links to several external biomedical vocabularies.
+
+### Inputs
+
+`scripts/initialize_master_database.py` combines three kinds of DrugBank material:
+
+- the merged drug-links table, which supplies the main product rows and linked identifiers;
+- a vocabulary export, which contributes synonyms, UNIIs, InChIKeys, and other structured fields when present; and
+- the full XML export, which contributes additional synonyms, ATC codes, CAS values, external identifiers, and product metadata.
+
+### Logic
+
+1. Each source row is grouped around its DrugBank accession and product name.
+2. The name is normalized into a `canonical_key` used for internal matching.
+3. Identifiers are converted into structured `{type, value, source}` objects rather than being kept as unrelated columns.
+4. Vocabulary and XML synonyms are deduplicated while their source is retained.
+5. DrugBank category rows are stored as membership assertions, allowing a product to retain more than one category such as approved, investigational, small molecule, or biotech.
+6. The initial `resolution` is set to `drugbank_baseline`, establishing why the record exists in the canonical registry.
+
+### Output and downstream meaning
+
+The stage writes `data/pipeline/master_records.jsonl`. At this point, the registry represents biomedical identity, not evidence that a product is essential, authorized in a particular country, WHO-prequalified, or relevant to the innovation horizon. Later stages add those assertions without replacing the baseline identity.
+
+The main risks at this stage are duplicate canonical names across distinct accessions, incomplete synonyms, and missing cross-database identifiers. These gaps directly reduce match recall later, which is why identifier-coverage and duplicate-key diagnostics are important baseline checks.
+
+See [DrugBank](../sources/drugbank.qmd) for detailed source metadata.
+
+## 2. Attach Essential Medicines List policy evidence
+
+### Purpose
+
+Essential Medicines Lists answer a policy question: whether a medicine appears in a WHO or national list. They do not provide a clean product master. Names may describe ingredients, combinations, formulations, or locally preferred terminology, and ATC codes may be missing or inconsistent.
+
+### Inputs
+
+`scripts/integrate_eml.py` reads the DrugBank baseline and a harmonized EML table containing the source scope, original medicine name, and available ATC information.
+
+### Phase 1: deterministic evidence
+
+The script builds indices from every identity signal already available in the baseline: the canonical key, stored synonyms, prior original names, ATC identifiers, and existing RxNorm enrichment where present.
+
+For each EML row, normalized name and ATC evidence are evaluated:
+
+1. When name and ATC point to the same canonical product, the membership is recorded as `name+atc`.
+2. When name and ATC point to different products, the row is retained with `name+atc_conflict` so the disagreement remains auditable.
+3. A name match without supporting ATC evidence is recorded as `name_only`.
+4. An ATC match without a name match is recorded as `atc_only`.
+5. Rows without a usable deterministic match advance to enrichment.
+
+### Phase 2: enrichment-assisted resolution
+
+Unmatched names can be enriched into a cleaner canonical name, additional synonyms, ATC identifiers, and RxCUIs. Those signals are compared with the baseline indices again. Successful links are labeled `enriched_name`, `enriched_atc`, or `enriched_rxnorm`, making it possible to distinguish direct matches from matches that depended on external vocabulary evidence.
+
+If no match is found, the row can become a new canonical record only when enrichment provides an RxCUI. Rows without sufficient evidence remain unmatched rather than silently expanding the registry.
+
+### Output and downstream meaning
+
+The stage writes `master_records_v2.jsonl`. Accepted EML rows appear as membership entries carrying the list scope, original name, match phase, match method, and source/master values used in the decision. The canonical product can now answer questions such as “On which lists does this product appear?” without losing how each list originally named it.
+
+See [Essential medicines list integration](../integration/essential-medicines-lists.qmd).
+
+## 3. Attach national authorization evidence
+
+### Purpose
+
+National regulatory data describes authorized products and presentations. A single ingredient can appear through many brands, strengths, dosage forms, manufacturers, packs, and authorization numbers. Treating every authorization row as a separate canonical product would produce severe duplication, so source harmonization and identity resolution are separate steps.
+
+### Capture and harmonization
+
+Country-specific downloaders collect data from Kenya, Senegal, and South Africa. `scripts/harmonize_nra_data.py` then maps heterogeneous source columns into a shared contract containing fields such as:
+
+- `nra_id`, `product_name`, and `generic_name`;
+- strength, dosage form, and route;
+- manufacturer, status, approval date, and expiry date;
+- country, product category, therapeutic area, and source URL.
+
+Harmonization standardizes the shape of the evidence but does not claim that two rows describe the same canonical product.
+
+### Resolution logic
+
+`scripts/integrate_nra.py` reads `master_records_v2.jsonl` and builds name, ATC, and RxNorm indices.
+
+1. The preferred identity input is `generic_name`; `product_name` is used as a fallback when the generic name is unavailable.
+2. Phase 1 applies normalized exact-name matching against all known names in the current registry.
+3. Unmatched rows can be enriched with normalized names, ATC codes, and RxCUIs.
+4. Phase 2 retries matching through enriched name, ATC, and RxNorm evidence.
+5. An unmatched enriched row is promoted only when it has an RxCUI or ATC clinical anchor.
+6. Remaining rows are written to the unmatched output for review.
+
+An accepted match appends an NRA membership assertion. It does not replace the canonical name with the brand name or collapse the source presentation fields into the product identity.
+
+### Output and downstream meaning
+
+The stage writes `master_records_v3.jsonl`. Each accepted authorization can still be distinguished by country, authorization ID, dates, status, manufacturer, formulation, and original source value. This supports both product-level analysis and authorization-level audit.
+
+A continuing quality concern is the boundary between ingredient-level identity and presentation-level records. The relational dashboard views currently include defensive rollups, but durable corrections should move upstream into product resolution.
+
+See [NRA capture](../sources/national-regulatory-authorities.qmd) and [NRA integration](../integration/national-regulatory-authorities.qmd).
+
+## 4. Attach WHO prequalification evidence
+
+### Purpose
+
+WHO prequalification is a qualification assertion, not a replacement identity system. The pipeline currently combines active pharmaceutical ingredient and finished pharmaceutical product records, which differ in granularity and naming conventions.
+
+### Inputs and normalization
+
+`scripts/integrate_who_pq.py` maps API and FPP source fields into a common structure. Each membership can retain the WHO identifier, qualification date, applicant, therapeutic area, qualification type, detail URL, and dosage form.
+
+### Resolution logic
+
+1. Phase 1 normalizes the WHO product name and attempts an exact match against all names accumulated through DrugBank, EML, and NRA stages.
+2. Unmatched rows are checked against an enrichment cache so interrupted or repeated runs do not repeat expensive work.
+3. When enrichment is enabled, normalized names, ATC codes, and RxCUIs are generated and compared with the registry.
+4. Successful phase-2 matches record whether the decisive evidence was name, ATC, or RxNorm.
+5. Unmatched rows become new canonical products only when enrichment produces an RxCUI or ATC code.
+6. Rows without a match or clinical anchor remain in `unmatched_who_pq.csv`.
+
+The preview output records the derived canonical key, RxCUIs, and ATC codes, providing an intermediate surface for reviewing enrichment before relying on it downstream.
+
+### Output and downstream meaning
+
+The stage writes `master_records_v4.jsonl`. Products can now be filtered by WHO PQ status and type without confusing qualification with country authorization or EML membership.
+
+See [WHO prequalification](../sources/who-prequalification.qmd).
+
+## 5. Attach selected ClinicalTrials.gov evidence
+
+### Purpose
+
+The clinical stage answers a different question from the earlier integrations. It does not generally decide whether a clinical intervention should create a new canonical product. Instead, it starts from products already present in `master_records_v4.jsonl`, searches ClinicalTrials.gov for those products, and attaches a deliberately selected subset of studies.
+
+For the full narrative—including the generic-term search, condition vocabulary, three study roles, and an imatinib tuberculosis example—see [ClinicalTrials.gov enrichment](../integration/clinical-trials.qmd).
+
+### Step 1: choose a search term
+
+`clinical_trials_pipeline_step1.py` collects the canonical name and stored synonyms for each product. The canonical name is used by default. When optional LLM selection is enabled and several candidate names exist, the model selects a simple intervention name intended to improve ClinicalTrials.gov recall. The output preserves both the canonical product and `search_name_used`, so the query term remains auditable.
+
+### Step 2: retrieve and classify studies
+
+`clinical_trials_pipeline_step2.py` queries the ClinicalTrials.gov v2 API by intervention and parses the returned study structures. It then classifies studies using two filters:
+
+- phase must include Phase II, III, or IV for the main selection logic; and
+- conditions are checked for tuberculosis, HIV, malaria, or maternal, newborn, and child health terms.
+
+For each product, the stage selects up to three distinct study roles:
+
+1. the oldest Phase II-or-later study for the product;
+2. the oldest Phase II-or-later study in an ALIGN condition of interest; and
+3. the newest Phase II-or-later study in an ALIGN condition of interest.
+
+If one study satisfies more than one role, it is retained once with multiple selection reasons. Raw parsed studies are stored separately from the filtered tabular output, allowing the selection to be reproduced.
+
+### Step 3: attach selected studies
+
+`scripts/integrate_clinical_trials.py` groups raw studies by canonical product, reapplies the selection logic, and writes selected study objects under `clinical_trials.gov` in `master_records_v5.jsonl`.
+
+This stage preserves study-level structures such as conditions, interventions, arms, outcomes, results, statistical analyses, extraction date, and provenance. The relational builder later separates these nested objects into dedicated clinical tables.
+
+### Output and downstream meaning
+
+The master registry now contains a compact, explainable clinical evidence sample for each updated product. It should not be interpreted as every study ever associated with that product; it is a selected evidence set based on the documented phase, disease-area, and date rules.
+
+## 6. Attach Innovation Guide Horizon membership
+
+### Purpose
+
+The IGH stage identifies which existing products also appear in a curated innovation pipeline. Unlike EML, NRA, and WHO PQ integration, IGH does not create new canonical products when no match is found.
+
+### Eligibility filter
+
+`scripts/integrate_igh.py` first limits the source to candidates with an R&D stage corresponding to Phase II or later. Accepted values include Phase II, Phase III, late development, human safety and efficacy, and PQ listing or regulatory approval.
+
+This filter defines the horizon-scanning scope before identity resolution begins.
+
+### Resolution logic
+
+1. Phase 1 compares the normalized IGH name with canonical keys, synonyms, prior source names, and Wikipedia names already stored in the registry.
+2. Unmatched names can be enriched when an LLM client is enabled.
+3. Enriched synonyms are compared with the registry name index.
+4. Enriched RxCUIs are compared with the registry RxNorm index.
+5. Matched rows append an IGH membership carrying disease, R&D stage, developers, indication, technology, target, mechanism, evidence status, features, challenges, and recent updates.
+6. Unmatched rows are written to `unmatched_igh.csv`; they do not expand the canonical registry.
+
+### Output and downstream meaning
+
+The stage writes `master_records_v6.jsonl`. IGH membership can now be used to define the innovation horizon while remaining distinct from regulatory approval, WHO qualification, and clinical-trial evidence.
+
+## 7. Attach confidence-gated FDA evidence
+
+### Purpose
+
+Drugs@FDA contains application- and product-level records. Name searches can return exact matches as well as broader contains matches, so this stage separates candidate generation from the acceptance policy.
+
+### Candidate matching
+
+`scripts/fda/fda_pipeline.py` collects names already associated with each canonical product, chooses a search name, searches the downloaded Drugs@FDA data, and creates both raw and flattened candidate outputs. The flattened output records the matched name, field, match type, application number, product number, active ingredients, strengths, dosage form, route, marketing status, approval dates, RxCUI, UNII, and NDC information.
+
+### Confidence gate
+
+`scripts/integrate_fda.py` classifies a match as high confidence only when it is an exact match on one of the approved fields:
+
+- OpenFDA brand name;
+- OpenFDA generic name;
+- OpenFDA substance name;
+- product active ingredient; or
+- product brand name.
+
+Contains matches and other field/type combinations are classified as `review`. By default, review-confidence rows are excluded from the master output and written to `fda_matches_review.csv`. They enter the master registry only when the explicit `--include-review` option is used.
+
+Accepted FDA records are deduplicated by application number and product number, summarized, and stored under `enrichment.fda`. This is enrichment rather than membership because the attached structure represents a set of regulatory application/product records and summary dates.
+
+### Output and downstream meaning
+
+The stage writes `master_records_v7.jsonl`. Every canonical product receives an FDA enrichment field: a structured summary for accepted matches or `null` when no high-confidence evidence was accepted. The explicit null distinguishes “processed with no accepted match” from “FDA stage not run.”
+
+## 8. Publish the relational analytical model
+
+### Purpose
+
+JSONL is effective for accumulating heterogeneous nested evidence, but it is not the desired query interface for dashboards or cross-product analysis. `data_model/build_data_model.py` converts the final master records into governed relational tables.
+
+### Schema-driven transformation
+
+1. YAML files under `data_model/schema/` define table columns and key constraints.
+2. The builder creates the DuckDB tables from those schemas.
+3. Each canonical product is written to `products`.
+4. Repeated collections are expanded into dedicated tables such as `product_membership`, `product_identifiers`, `product_synonyms`, `essential_medicines`, `market_authorization`, `product_qualification`, `igh_membership`, and FDA enrichment tables.
+5. Nested ClinicalTrials.gov studies are normalized into study, link, term, result, raw, arm, and QA structures.
+6. Primary-key and table-specific deduplication is applied before insertion.
+7. SQL in `data_model/views/create_views.sql` builds analytical and dashboard-facing views.
+8. Optional export writes tables and views into separate CSV directories for Supabase or other downstream systems.
+
+### Validation
+
+The model validation reports table and view row counts, membership scope distributions, missing keys and match methods, clinical-record parity, and orphan relationships. These checks are essential because a successful file write does not guarantee relational integrity.
+
+### Output and downstream meaning
+
+The resulting DuckDB database and CSV exports are the publication layer. The dashboard should consume stable tables or views from this layer rather than embed entity-resolution rules in the application.
+
+## What the pipeline does not yet guarantee
+
+The current architecture preserves substantial audit evidence, but several decisions still require active governance:
+
+- promotion rules for unmatched source rows;
+- ingredient-level versus presentation-level canonical identity;
+- manual adjudication of conflicting name and identifier evidence;
+- validity windows for expired or superseded authorizations;
+- the completeness of identifier and synonym enrichment;
+- whether the selected ClinicalTrials.gov sample is sufficient for each analytical use case; and
+- the acceptance policy for review-confidence FDA matches.
+
+These should be documented as explicit decision rules and monitored through the figures proposed in [Recommended figures](figures.qmd).

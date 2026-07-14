@@ -1,0 +1,208 @@
+---
+title: "EML Integration and Matching Report"
+description: "Documentation of the process for integrating Essential Medicines List (EML) data into the ALIGN master database, including hierarchical matching and enrichment."
+author: "ALIGN-Pipeline"
+date: last-modified
+---
+
+# Overview
+
+This report documents the integration of **Essential Medicines List (EML)** data from the WHO and regional authorities (Kenya, South Africa, Senegal) into the ALIGN master database. The process ensures that drug records are correctly anchored to a baseline and that new products are added with full provenance.
+
+# Integration Methodology
+
+The script `scripts/integrate_eml.py` implements a two-phase integration strategy.
+
+## Phase 1: Hierarchical Matching
+
+Phase 1 attempts to match EML items directly against the existing master records (initially populated from DrugBank) using a hierarchical approach:
+
+1.  **Name Match:** The EML product name is normalized and searched against the `canonical_key` and synonyms of master records.
+2.  **ATC Match:** If provided, the EML ATC code is searched against the identifiers of master records.
+
+### Conflict Resolution
+If both Name and ATC are present, the system checks if they point to the same master record.
+- **`name+atc`**: Both attributes agree on the same record.
+- **`name+atc_conflict`**: Name and ATC point to different records. In this case, both matches are preserved, and the conflict is flagged in the metadata.
+- **`name_only` / `atc_only`**: Only one attribute produced a match.
+
+## Phase 2: Enrichment and New Products
+
+Items that do not match in Phase 1 undergo **Enrichment** via RxNorm, UMLS, and other APIs. This phase uses the enriched identifiers (e.g., RxCUIs) to search for a match in the master database.
+
+- **Match Found:** If enrichment reveals a match (e.g., via a shared RxCUI), the existing master record is updated.
+- **New Product:** If no match is found even after enrichment, a **new master record** is created. This ensures the database grows as new regional products are discovered.
+
+# Data Schema and Provenance
+
+Every time an EML product is integrated, a `membership` entry is added to the master record. This entry captures the following metadata:
+
+- `scope`: The source of the EML (e.g., WHO, Kenya).
+- `match_phase`: Whether the match occurred in `phase1` or `phase2`.
+- `match_method`: The specific logic used (e.g., `name+atc`, `enriched_rxnorm`, `new_record`).
+- `eml_value`: The value from the EML that triggered the match.
+- `master_value`: The corresponding value in the master record.
+
+# Integration Summary
+
+```{python}
+#| label: load-data
+import pandas as pd
+import json
+import os
+
+# Helper to load JSONL
+def load_jsonl(filepath):
+    if not os.path.exists(filepath):
+        return []
+    with open(filepath, "r") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+master_path = "../data/pipeline/master_records_v2.jsonl"
+
+master_records = load_jsonl(master_path)
+```
+
+```{python}
+#| label: match-statistics
+#| tbl-cap: "Overall Match Statistics"
+
+stats = []
+if master_records:
+    total_memberships = 0
+    phase_counts = {"phase1": 0, "phase2": 0, "baseline": 0}
+    method_counts = {}
+
+    for rec in master_records:
+        for m in rec.get("membership", []):
+            total_memberships += 1
+            phase = m.get("match_phase", "baseline")
+            method = m.get("match_method", "drugbank_baseline")
+
+            phase_counts[phase] = phase_counts.get(phase, 0) + 1
+            method_counts[method] = method_counts.get(method, 0) + 1
+
+    stats_df = pd.DataFrame([
+        {"Category": "Total Integrated Memberships", "Count": total_memberships},
+        {"Category": "Phase 1 Matches", "Count": phase_counts.get("phase1", 0)},
+        {"Category": "Phase 2 Matches (Enrichment)", "Count": phase_counts.get("phase2", 0)},
+        {"Category": "Baseline Records", "Count": phase_counts.get("baseline", 0)}
+    ])
+    display(stats_df)
+else:
+    print("Master records not found.")
+```
+
+```{python}
+seen = set()
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        key = (m.get("scope"), m.get("original_name"))
+        seen.add(key)
+
+print(len(seen))
+
+
+# 3. True match rate (THIS is what you want)
+matched = set()
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if m.get("match_phase") in ["phase1", "phase2"]:
+            key = (m.get("scope"), m.get("original_name"))
+            matched.add(key)
+
+print(len(matched))
+```
+
+# Examples of Match Provenance
+
+The following table shows how the `value_eml` and `value_master` are used to provide clear reasons for each match.
+
+```{python}
+#| label: provenance-examples
+#| tbl-cap: "Sample Match Provenance"
+
+rows = []
+scopes = ["WHO", "Kenya", "Senegal", "South Africa"]
+
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if m.get("scope") in scopes and m.get("match_phase"):
+            rows.append({
+                "Canonical Name": rec.get("canonical_key"),
+                "Scope": m.get("scope"),
+                "Phase": m.get("match_phase"),
+                "Method": m.get("match_method"),
+                "EML Value": m.get("eml_value"),
+                "Master Value": m.get("master_value")
+            })
+            if len(rows) >= 10: break
+    if len(rows) >= 10: break
+
+pd.DataFrame(rows)
+```
+
+# Handling Conflicts
+
+When Name and ATC point to different records, the system flags a `name+atc_conflict`. This allows for manual adjudication while ensuring no data is lost during the automated pipeline.
+
+```{python}
+#| label: conflict-examples
+#| tbl-cap: "Example of Hierarchical Conflicts"
+
+conflicts = []
+for rec in master_records:
+    for m in rec.get("membership", []):
+        if m.get("match_method") == "name+atc_conflict":
+            conflicts.append({
+                "Canonical Name": rec.get("canonical_key"),
+                "Scope": m.get("scope"),
+                "EML Value": m.get("eml_value"),
+                "Master Value": m.get("master_value")
+            })
+            if len(conflicts) >= 5: break
+    if len(conflicts) >= 5: break
+
+if conflicts:
+    display(pd.DataFrame(conflicts))
+else:
+    print("No conflicts found in the current dataset.")
+```
+
+# New Product Integration
+
+Products that are not found in the DrugBank baseline are added as new records. These are identified by the `new_record` match method.
+
+```{python}
+#| label: new-products
+#| tbl-cap: "New Products Added to Master File"
+
+new_prods = []
+for rec in master_records:
+    is_new = False
+    scopes_added = []
+    for m in rec.get("membership", []):
+        if m.get("match_method") == "new_record":
+            is_new = True
+            scopes_added.append(m.get("scope"))
+
+    if is_new:
+        new_prods.append({
+            "New Product Name": rec.get("canonical_key"),
+            "Source(s)": ", ".join(set(scopes_added)),
+            "Identifiers": ", ".join([f"{i['type']}:{i['value']}" for i in rec.get("identifiers", [])[:3]]),
+            "Synonyms": len(rec.get("synonyms", []))
+        })
+        if len(new_prods) >= 10: break
+
+if new_prods:
+    display(pd.DataFrame(new_prods))
+else:
+    print("No new products found (all matched to baseline).")
+```
+
+# Conclusion
+
+The EML integration process provides a robust and transparent way to expand the ALIGN master database. By using hierarchical matching and detailed provenance tracking, we maintain high data quality while ensuring that regional variations and new products are captured accurately.

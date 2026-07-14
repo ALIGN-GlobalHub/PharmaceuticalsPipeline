@@ -1,0 +1,143 @@
+---
+title: "WHO Prequalification Dataset Metadata"
+author: "ALIGN Consortium"
+date: last-modified
+---
+
+# Introduction
+
+This document describes the **WHO Prequalification (WHO_PQ) datasets** integrated into the ALIGN pipeline.
+The purpose of this report is to document:
+
+- The source and scope of the WHO_PQ datasets.
+- The methodology used for data extraction (scraping vs. direct download).
+- An evaluation of dataset integration feasibility.
+
+The WHO Prequalification program ensures that health products (medicines, vaccines, diagnostics, etc.) meet global standards of quality, safety, and efficacy. The ALIGN pipeline ingests this data to track the availability and regulatory status of essential health products globally.
+
+# Data Sources
+
+The following resources are monitored and ingested:
+
+1.  **Finished Pharmaceutical Products (FPP):** [Link](https://extranet.who.int/prequal/medicines/prequalified/finished-pharmaceutical-products)
+2.  **Active Pharmaceutical Ingredients (API):** [Link](https://extranet.who.int/prequal/medicines/prequalified/active-pharmaceutical-ingredients)
+3.  **Vaccines:** [Link](https://extranet.who.int/prequal/vaccines/prequalified-vaccines)
+4.  **Vector Control Products (VCP):** [Link](https://extranet.who.int/prequal/vector-control-products/prequalified-product-list)
+5.  **In Vitro Diagnostics (IVD):** [Link](https://extranet.who.int/prequal/vitro-diagnostics/prequalified/in-vitro-diagnostics)
+6.  **Immunization Devices:** [Link](https://extranet.who.int/prequal/sites/default/files/immunization_devices/json/catalogs/immunization_devices_catalogue.json)
+
+# Methodology
+
+While the WHO provides CSV exports for several of these lists, the ALIGN pipeline uses a **custom scraping strategy** for the HTML tables.
+
+## Web Scraping
+For the FPP, API, Vaccines, VCP, and IVD datasets, the `scripts/download_who_pq.py` script:
+- Iterates through all paginated results.
+- Extracts all visible table columns.
+- **Captures the detail URLs** embedded in the product identifiers or names. These URLs are stored in a new column named `id_url` and are critical for downstream enrichment of product-specific details (e.g., manufacturing sites, specific indications).
+
+## JSON Processing
+The **Immunization Devices** catalog is provided as a structured JSON file. The pipeline:
+- Downloads the raw JSON as a source artifact.
+- Flattens the nested, category-keyed structure into a tabular CSV format (`who_pq_devices.csv`) to facilitate consistent processing with other product streams.
+
+# Evaluation of Dataset Feasibility
+
+A primary goal of this ingestion was to evaluate if these datasets could be compiled into a single unified WHO_PQ dataset.
+
+**Conclusion: A unified dataset is not feasible.**
+
+The schemas across these domains are highly heterogeneous, reflecting the diverse nature of the products:
+- **Medicines (FPP/API):** Focus on INN, dosage form, and therapeutic area.
+- **Vaccines:** Focus on pathogen/disease and specific assay/regulatory versions.
+- **Vector Control:** Focus on active ingredient/synergist and application type (e.g., IRS, ITN).
+- **IVD:** Focus on assay format and regulatory version.
+- **Immunization Devices:** Focus on technical hardware specifications (e.g., insulation, refrigerant, temperature zones).
+
+Beyond basic fields like `Manufacturer`, `Applicant`, and `Status`, there is negligible overlap in metadata. Forced unification would result in a extremely sparse matrix. Consequently, these remain as **6 distinct datasets** within the pipeline.
+
+# Dataset Inventory
+
+The following table lists the WHO_PQ datasets currently available in the local data directory.
+
+```{python}
+import os
+from pathlib import Path
+import pandas as pd
+from IPython.display import display, Markdown
+
+# Robust path handling relative to the script/report location
+try:
+    # If running in a notebook/quarto context
+    current_dir = Path.cwd()
+    if (current_dir / "data").exists():
+        DATA_DIR = current_dir / "data" / "WHO_PQ"
+    else:
+        # Search up for root
+        root = current_dir
+        while root.parent != root and not (root / "data").exists():
+            root = root.parent
+        DATA_DIR = root / "data" / "WHO_PQ"
+except:
+    DATA_DIR = Path("data/WHO_PQ")
+
+DATASETS = [
+    ("FPP", DATA_DIR / "who_pq_fpp.csv"),
+    ("API", DATA_DIR / "who_pq_api.csv"),
+    ("Vaccines", DATA_DIR / "who_pq_vaccines.csv"),
+    ("Vector Control", DATA_DIR / "who_pq_vcp.csv"),
+    ("IVD", DATA_DIR / "who_pq_ivd.csv"),
+    ("Devices", DATA_DIR / "who_pq_devices.csv")
+]
+
+inventory = []
+
+for label, path in DATASETS:
+    exists = path.exists()
+    if exists:
+        df = pd.read_csv(path, low_memory=False)
+        rows, cols = df.shape
+    else:
+        rows, cols = None, None
+
+    inventory.append({
+        "Dataset": label,
+        "File": path.name,
+        "Exists": exists,
+        "Rows": rows,
+        "Columns": cols
+    })
+
+inventory_df = pd.DataFrame(inventory)
+display(inventory_df)
+```
+
+# Dataset Variable Summaries
+
+```{python}
+def summarize_dataframe(df):
+    rows = []
+    for col in df.columns:
+        series = df[col]
+        rows.append({
+            "variable": col,
+            "dtype": str(series.dtype),
+            "non_null": series.notna().sum(),
+            "missing": series.isna().sum(),
+            "unique_values": series.nunique(),
+            "sample_values": " | ".join(series.dropna().astype(str).head(3))
+        })
+    return pd.DataFrame(rows)
+
+for label, path in DATASETS:
+    if not path.exists():
+        continue
+
+    display(Markdown(f"## {label}"))
+    df = pd.read_csv(path, low_memory=False)
+
+    display(Markdown(f"Rows: **{len(df):,}** | Columns: **{df.shape[1]}**"))
+    display(summarize_dataframe(df))
+    display(Markdown("### Data preview"))
+    display(df.head(3))
+```

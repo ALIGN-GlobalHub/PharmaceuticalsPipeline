@@ -1,0 +1,63 @@
+project:
+  type: website
+  output-dir: _site
+  execute-dir: project
+
+website:
+  title: "ALIGN Pharmaceuticals Pipeline"
+  description: "Public documentation for the ALIGN pharmaceuticals evidence pipeline."
+  site-url: https://align-globalhub.github.io/PharmaceuticalsPipeline/
+  repo-url: https://github.com/ALIGN-GlobalHub/PharmaceuticalsPipeline
+  repo-subdir: docs
+  repo-actions: [edit, source, issue]
+  page-navigation: true
+  search: true
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - href: pipeline/index.qmd
+        text: Pipeline
+      - href: sources/index.qmd
+        text: Sources
+      - href: integration/index.qmd
+        text: Integration
+      - href: data-model/index.qmd
+        text: Data model
+  sidebar:
+    style: docked
+    collapse-level: 1
+    contents:
+      - index.qmd
+      - section: "Pipeline"
+        contents: pipeline/*
+      - section: "Data sources"
+        contents: sources/*
+      - section: "Integration and matching"
+        contents: integration/*
+      - section: "Data model"
+        contents: data-model/*
+  page-footer:
+    left: "ALIGN Consortium"
+    right: "Built with [Quarto](https://quarto.org/)"
+
+format:
+  html:
+    theme:
+      - cosmo
+      - styles.scss
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-tools: true
+    anchor-sections: true
+    link-external-newwindow: true
+
+# Public documentation must render without raw or licensed pipeline data.
+# Executable reports can be added later only with explicitly public fixtures.
+execute:
+  enabled: false
+  echo: false
+  warning: false
+  message: false
+

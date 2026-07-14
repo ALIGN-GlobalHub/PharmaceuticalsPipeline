@@ -1,0 +1,27 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.quarto/
+docs/_site/
+docs/_freeze/
+docs/.quarto/
+
+# Public-repository data boundary
+data/
+data_sample/
+csv_export/
+*.csv
+*.tsv
+*.jsonl
+*.duckdb
+*.db
+*.sqlite
+*.sqlite3
+*.xlsx
+*.xls
+*.zip
+*.xml
+
