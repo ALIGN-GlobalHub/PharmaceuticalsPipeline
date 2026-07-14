@@ -1,0 +1,15 @@
+---
+title: "Data sources"
+description: "Provenance, capture, and metadata for upstream ALIGN datasets."
+---
+
+Source documentation explains what ALIGN ingests, where the data originates, how it is captured, and which identifiers or assertions it contributes to the canonical registry.
+
+## Current source documentation
+
+- [DrugBank](drugbank.qmd): product baseline, identifiers, vocabulary, and `drugbank_type` provenance.
+- [National regulatory authorities](national-regulatory-authorities.qmd): capture and harmonization for Kenya, Senegal, and South Africa.
+- [WHO prequalification](who-prequalification.qmd): product categories, downloads, and dataset inventory.
+
+Additional source pages will be promoted from `reports/` after their extraction workflows no longer depend on workstation-specific paths or live network access during site rendering.
+

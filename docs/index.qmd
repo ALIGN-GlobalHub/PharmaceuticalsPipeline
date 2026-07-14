@@ -1,0 +1,50 @@
+---
+title: "ALIGN Drug Pipeline"
+subtitle: "Technical documentation for the health-product integration pipeline"
+description: "How ALIGN ingests, resolves, enriches, and publishes health-product evidence."
+page-layout: full
+---
+
+The ALIGN Drug Pipeline builds a canonical health-product registry by combining product identity, essential-medicines policy, national regulatory authorization, WHO prequalification, clinical evidence, innovation-pipeline membership, and FDA enrichment.
+
+::: {.callout-note}
+This site contains stable technical documentation. Exploratory analyses and source-extraction notebooks remain in `reports/` until they are portable and reproducible in an automated documentation build.
+:::
+
+## Documentation map
+
+::: {.grid}
+
+::: {.g-col-12 .g-col-md-6}
+### [Pipeline](pipeline/index.qmd)
+
+Understand the processing sequence, resolution logic, stage outputs, and the figures proposed for documenting each master-record version.
+:::
+
+::: {.g-col-12 .g-col-md-6}
+### [Data sources](sources/index.qmd)
+
+Review source provenance, capture methods, metadata, and the role of each upstream dataset.
+:::
+
+::: {.g-col-12 .g-col-md-6}
+### [Integration and matching](integration/index.qmd)
+
+See how source records are resolved against canonical products and how match provenance is retained.
+:::
+
+::: {.g-col-12 .g-col-md-6}
+### [Data model](data-model/index.qmd)
+
+Learn how nested master records become relational tables and dashboard-facing analytical views.
+:::
+
+:::
+
+## Repository conventions
+
+- `docs/` contains reviewed documentation source.
+- `reports/` contains executable analyses, extraction notebooks, and works in progress.
+- `scripts/` contains ingestion, integration, and enrichment code.
+- `data_model/` contains schema definitions, relational transforms, and analytical views.
+- `data/` contains local pipeline inputs and outputs and is not treated as documentation source.

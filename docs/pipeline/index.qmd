@@ -1,0 +1,230 @@
+---
+title: "Pipeline overview"
+description: "How ALIGN turns fragmented product evidence into a cumulative, traceable view of health-product identity, access, and development."
+author: "ALIGN Consortium"
+date: last-modified
+---
+
+## Executive overview
+
+The ALIGN Drug Pipeline is an evidence-integration system for understanding health products across the life cycle. It brings together sources that were designed to answer different questions: what a product is, whether it is considered essential, where it is authorized, whether it has passed an international quality-assurance process, how it is being studied, and whether it is still moving through development. The purpose is not simply to collect these records in one place. It is to establish when different records refer to the same underlying product and then preserve what each source independently says about it.
+
+This distinction is important because product evidence rarely arrives in a common language. A regulator may publish a brand name and presentation; an Essential Medicines List may use an ingredient-level name and ATC code; a clinical study may use an intervention label; and a research-and-development tracker may use a sponsor's candidate name. Even when the records describe the same product, their spelling, specificity, and identifiers can differ substantially.
+
+ALIGN addresses this problem through a cumulative canonical registry. Each incoming record is first interpreted as a source assertion. The pipeline attempts to connect that assertion to an existing canonical product using the strongest available evidence. When direct matching is insufficient, a shared enrichment process expands the search space with normalized names, RxNorm concepts, RxCUIs, UMLS concepts, ATC codes, and authoritative lexical variants. Accepted evidence becomes part of the product profile and can improve the resolution of later sources. Uncertain evidence remains visible for review rather than being silently forced into the registry.
+
+The architecture is modular by design. A new database can be connected through a source-specific capture and harmonization layer while reusing the same identity, enrichment, provenance, and publication services. This lets a new source contribute in two ways: it can add a new statement about a product already known to ALIGN, or it can surface a previously untracked product for candidate review and subsequent evidence searches.
+
+## From fragmented records to a living product profile
+
+```{mermaid}
+%%| label: fig-pipeline-overview
+%%| fig-cap: "The modular ALIGN workflow resolves records from current, nominated, and future sources against a cumulative product registry. A source can enrich a known product or surface an anchored candidate, while accepted names and identifiers strengthen later queries."
+flowchart LR
+    subgraph S["Evidence entering ALIGN"]
+      direction TB
+      S1["Identity reference<br/>DrugBank"]
+      S2["Policy and access<br/>Essential Medicines Lists"]
+      S3["Regulatory evidence<br/>NRAs · WHO PQ · FDA"]
+      S4["Development evidence<br/>ClinicalTrials.gov · IGH"]
+      S5["Partner and community intake<br/>nominated products + sources"]
+      S6["Future source adapters<br/>article databases + publications"]
+    end
+
+    S1 --> B["Canonical baseline<br/>names · synonyms · identifiers"]
+    S2 --> H["Source capture and<br/>schema harmonization"]
+    S3 --> H
+    S4 --> H
+    S5 --> H
+    S6 --> H
+    B --> R["Direct resolution<br/>canonical name · synonym · ATC · RxCUI"]
+    H --> R
+
+    R -- "hit" --> A["Attach the source assertion<br/>with match provenance"]
+    R -- "no hit" --> N["Normalize the product name"]
+    N --> RX["RxNorm lookup<br/>RXCUI + related concepts"]
+    RX -- "no concept" --> L["Guarded name simplification<br/>then retry RxNorm"]
+    L --> RX
+    RX --> U["UMLS expansion<br/>CUI · lexical variants · ATC crosswalks"]
+    U --> RR["Retry name and<br/>identifier indices"]
+    RR -- "hit" --> A
+    RR -- "no hit" --> G{"Stage-specific<br/>acceptance policy"}
+    G -- "anchored and permitted" --> P["Promote a new<br/>canonical product"]
+    G -- "uncertain or not permitted" --> Q["Unmatched or review queue<br/>manual verification"]
+
+    A --> C["Living canonical product profile<br/>identity + source-specific evidence"]
+    P --> C
+    C --> X["Expanded names and identifiers<br/>become reusable search evidence"]
+    X -. "feedback to later stages" .-> R
+    C --> M["Relational publication<br/>tables · views · dashboard"]
+```
+
+The workflow is intentionally not a one-way sequence of file transformations. It is a learning registry with a controlled feedback loop. Once a source assertion is accepted, its useful names and identifiers can become searchable evidence for later stages. A product first encountered through an Essential Medicines List may subsequently be recognized in a national authorization register because both resolve to the same RxCUI. A national source may contribute a local name that later improves clinical-study retrieval. The registry becomes more connected over time without erasing the boundaries between its sources.
+
+## A modular architecture for new evidence sources
+
+The pipeline is organized around reusable contracts rather than a fixed list of databases. Each source has its own acquisition method and schema, but it enters ALIGN through the same conceptual interface: capture the source record, preserve its provenance, map its fields into a source-specific assertion, resolve the product against the current registry, apply an explicit acceptance policy, and publish the accepted evidence at the correct analytical grain.
+
+This division allows a new database adapter to be developed without rebuilding the rest of the pipeline. A regulator, procurement database, product catalogue, implementation dataset, or research repository may require a different downloader and harmonization module. Once its product names and available identifiers have been expressed in the common intake contract, the adapter can reuse normalization, RxNorm and UMLS expansion, name and identifier indices, stage-versioning, audit fields, and relational publication.
+
+A newly connected database can change the registry in two distinct ways:
+
+1. **Enrichment of a known product.** If a source record resolves to an existing canonical product, ALIGN records that the product is present in the new database and retains the source's own assertion fields. This may add a new policy status, geography, authorization, development signal, publication, or other form of evidence without creating another product identity.
+
+2. **Expansion of the candidate universe.** If a source record does not resolve to the current registry, it becomes a candidate rather than disappearing. Where the source policy permits and the product has sufficient identity evidence, it may be promoted into the canonical registry. Otherwise it enters a review queue. Once accepted, the new product can be queried across the other connected databases, allowing discovery in one source to trigger systematic enrichment elsewhere.
+
+The two paths are complementary. Adding a database increases the depth of evidence for products already tracked, while also increasing the breadth of products that ALIGN knows to investigate. Because accepted synonyms and identifiers flow back into the resolution indices, every well-governed integration can improve the performance of integrations that follow it.
+
+::: {.callout-note}
+Modularity does not mean that every source is flattened into the same schema. Source-specific evidence remains distinct. The reusable contract governs identity, provenance, review, and publication while allowing each database to retain the fields that make its evidence meaningful.
+:::
+
+## Why identity resolution is the center of the pipeline
+
+The unit of analysis in ALIGN is the **canonical product**, but most upstream systems publish something else: a list entry, authorization, qualification record, study intervention, application, or development candidate. These objects exist at different levels of specificity. One source may describe an active ingredient; another may describe a combination, brand, strength, dosage form, or package. Treating every row as a new product would inflate the product universe and fragment the evidence. Collapsing rows too aggressively would create the opposite problem by merging clinically or operationally distinct products.
+
+The pipeline therefore separates identity from assertion. A canonical product holds the stable identity spine. Policy, authorization, qualification, study, innovation, and FDA records are attached as source-specific evidence. Their original names, scopes, record numbers, dates, match methods, and other provenance fields remain available. The resulting profile can answer both “what evidence exists for this product?” and “which source made this claim, using which original value?”
+
+This is why the master record is more than a consolidated table. It is a compact evidence graph represented as a versioned JSONL record and later normalized into relational tables. See the [master-record schema](../data-model/master-record-schema.qmd) and [relational data model](../data-model/index.qmd) for the structural contracts.
+
+## The synonym and identifier expansion engine
+
+Synonym and identifier expansion is the key bridge between heterogeneous naming systems. It is invoked after direct name and identifier checks have failed, so it increases recall without replacing the pipeline's more deterministic first-line evidence.
+
+The enrichment path performs four related tasks:
+
+1. **Lexical normalization** creates a comparable search form while retaining the source value. Case, spacing, punctuation, and Unicode differences should not prevent two otherwise identical names from meeting.
+
+2. **RxNorm anchoring** searches the normalized name in RxNorm. A successful search returns one or more RxCUIs and related RxNorm concepts. The RxCUI acts as a clinical vocabulary anchor; the associated lexical terms extend the names that can be tested against the registry.
+
+3. **UMLS expansion** maps an RxCUI to a UMLS CUI and retrieves selected English vocabulary atoms. It can also expose structured crosswalks, including ATC and DrugBank identifiers. This connects a name-level match to a broader, provenance-bearing terminology graph.
+
+4. **Guarded name simplification** is used only as a fallback when the original name does not resolve in RxNorm. The language model rewrites the search expression toward an ingredient-level form and the result is sent back through RxNorm. The generated string is a search aid, not an authoritative identity decision.
+
+::: {.callout-important}
+An RxCUI, UMLS CUI, or ATC code is an **identifier**, not a synonym. A synonym is a lexical assertion associated with a concept. The pipeline keeps these roles distinct and records where each value came from. This allows an RxCUI match to support identity resolution without pretending that every related term is interchangeable in every clinical context.
+:::
+
+The expanded evidence is compared with indices built from the current registry: normalized canonical names, accumulated synonyms, ATC codes, and RxCUIs. A match can therefore be explained in terms of the evidence that connected the source assertion to the canonical product. If no match is found, the response depends on the integration stage. EML, NRA, and WHO PQ workflows may promote a new record when the candidate has an accepted clinical anchor and the stage policy permits promotion. Innovation Guide Horizon records do not create canonical products when unmatched. FDA candidates pass through a separate high-confidence exact-match gate. These differences are deliberate safeguards, not inconsistencies.
+
+## Evidence is added in layers
+
+### Establishing identity
+
+[DrugBank](../sources/drugbank.qmd) provides the starting identity universe, including curated product names, synonyms, classifications, and links to biomedical identifiers. The baseline is constructed before the source integrations begin so that later evidence is evaluated against an established product vocabulary rather than against an empty registry.
+
+### Adding policy, access, and regulatory context
+
+[Essential Medicines Lists](../integration/essential-medicines-lists.qmd) add global and national policy membership. [National regulatory authority data](../sources/national-regulatory-authorities.qmd) add country-level authorization records after country schemas have been harmonized; the [NRA integration](../integration/national-regulatory-authorities.qmd) then resolves those records to product identity. [WHO prequalification](../sources/who-prequalification.qmd) contributes international quality-assurance evidence while retaining the distinction between active pharmaceutical ingredients and finished pharmaceutical products.
+
+FDA evidence is integrated later because its application and product hierarchy requires a separate candidate-matching and confidence-classification process. Only high-confidence exact matches enter the default product profile. Plausible but weaker results are written to a review output.
+
+### Adding development and clinical context
+
+ClinicalTrials.gov and Innovation Guide Horizon extend the profile beyond market and policy status. ClinicalTrials.gov contributes selected Phase II-or-later studies, including studies connected to ALIGN conditions. IGH contributes product-development membership for eligible stages. In both cases, these records describe evidence about a product; they do not redefine its canonical identity. The [ClinicalTrials.gov enrichment narrative](../integration/clinical-trials.qmd) explains generic-term selection, retrieval, condition classification, and the three study roles, while the [IGH section](process.qmd#attach-innovation-guide-horizon-membership) describes the stage filter and its no-promotion rule.
+
+## Conservative automation and visible uncertainty
+
+The design favors traceable decisions over maximum automatic coverage. Every successful integration records the source scope, original value, match phase, match method, and the source and master values that supported the decision when available. Conflicts remain observable. Unmatched records are not discarded, and review candidates are not presented as accepted evidence.
+
+Three guardrails shape the workflow:
+
+- **Deterministic evidence comes first.** Existing names and identifiers are checked before external enrichment or language-model assistance.
+
+- **Promotion is stage-specific.** A failure to match is not, by itself, proof that a new canonical product exists.
+
+- **The original assertion is retained.** Normalization and enrichment add interpretive evidence but do not replace the source record.
+
+Each integration writes a new master-record version. These versions are stage contracts: they identify which evidence layers have been applied and make before-and-after comparison possible. They are not software release numbers.
+
+## From product registry to analytical evidence
+
+The final canonical records are normalized into a relational model rather than served directly as nested JSON. Product identity, synonyms, identifiers, memberships, authorizations, qualifications, FDA records, and clinical evidence occupy different tables because they have different grains. Governed views then assemble the combinations required for analysis and dashboard delivery. This keeps the analytical layer flexible while preserving a path back to the source assertion and resolution decision.
+
+The practical result is a living product profile that can bring several dimensions into one traceable view:
+
+- identity and authoritative identifiers;
+- global and national essential-medicine status;
+- market authorization by country;
+- WHO prequalification evidence;
+- clinical-development and selected study evidence;
+- innovation-pipeline membership; and
+- FDA application and product evidence accepted under a confidence policy.
+
+## Partner and community product intake
+
+Database integrations are not the only way a product can enter consideration. Domain experts, implementing partners, researchers, manufacturers, and other stakeholders may know about a product before it appears in the sources routinely monitored by ALIGN. The intake pathway is intended to give those users a structured way to reach the ALIGN team and nominate a product for review.
+
+A useful nomination is more than a product name. The current intake contract asks for four fields:
+
+- `product_name`: the name by which the submitter knows the product;
+- `product_type`: the type of health product, currently limited to pharmaceuticals in the intake prototype;
+- `data_source`: a database, publication, study, manufacturer page, or other source that supports the nomination; and
+- `annotation`: the indication, rationale, context, caveats, or other information that will help reviewers understand why the product should be considered.
+
+Once received, a nomination should pass through the same identity safeguards as a database record. The name is normalized and compared with canonical names and synonyms. If no direct match is found, identifier enrichment can test RxCUI and ATC evidence against the registry. A match enriches the existing product with a provenance-bearing intake assertion. A nonmatch becomes a candidate for review and, if accepted, joins the product universe that is queried across the connected evidence sources.
+
+This makes intake bidirectional. Stakeholders can alert ALIGN to a product that is absent from the current registry, and ALIGN can return a structured view of what is already known about that product across policy, regulatory, qualification, clinical, innovation, and FDA sources. A nomination is therefore a trigger for investigation, not an automatic publication decision.
+
+::: {.callout-note}
+The dashboard currently contains an editable product-intake table, a CSV template, schema validation, and readiness feedback. The remaining operational step is to connect that prototype to a durable submission, notification, review, and disposition workflow. Before public launch, the documentation should publish a named contact route, expected supporting information, review ownership, and a way for submitters to learn the outcome.
+:::
+
+The current implementation can be inspected in the dashboard's [`product_intake_template()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/app.py#L612) and validation functions, and in the registry-facing [`process_intake()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/product_intake.py#L54) workflow.
+
+## Next frontier: evidence from scientific publications
+
+The next major source family should be bibliographic and full-text article databases. Structured registries tell ALIGN that a product is listed, authorized, qualified, or studied. Publications can add a different layer: why the product is being investigated, which population and indication were studied, what outcomes were reported, what mechanism or target was proposed, and which evidence supports a repurposing hypothesis.
+
+This expansion should follow the same modular pattern as the existing integrations. A literature adapter should not place unreviewed text directly into the canonical product record. It should create provenance-bearing publication assertions that can be linked to a product and, where appropriate, surface new product candidates.
+
+The proposed literature workflow is:
+
+1. **Build reproducible queries.** Combine the canonical name, curated synonyms, RxCUI-linked names, development codes, and condition terms. Store the exact query, database, filters, and crawl date.
+
+2. **Crawl bibliographic sources.** Begin with article metadata and abstracts, then add licensed or open full text where permitted. Deduplicate records using persistent identifiers such as DOI or PMID and retain the source URL and retrieval provenance.
+
+3. **Extract structured evidence.** Identify product mentions, indications, populations, study design, development stage, comparators, outcomes, targets, mechanisms, geographies, and key dates. The extracted claim should remain linked to the text span and publication from which it came.
+
+4. **Resolve products against the registry.** Match publication terms using the same canonical-name, synonym, RxCUI, ATC, and enrichment services used for structured databases. A recognized term enriches an existing product; an unresolved but well-supported product mention enters the candidate-review pathway.
+
+5. **Apply confidence and human review.** Separate high-confidence structured links from ambiguous mentions, combination therapies, class-level statements, and speculative claims. Publication evidence should support a product profile without being treated as an identity authority on its own.
+
+6. **Publish an auditable literature layer.** Normalize publications, product-publication links, extracted claims, evidence spans, and review decisions into relational tables so that each dashboard statement can be traced back to its source.
+
+Condition-first crawling can also broaden discovery. Instead of beginning only with products already in the registry, ALIGN can search recent literature for TB, HIV, malaria, and MNCH interventions, extract product mentions, and send previously unknown names through the intake and identity-resolution workflow. This mirrors the existing condition-driven ClinicalTrials.gov intake pattern while extending it to published research.
+
+The first implementation milestone should be a small, reviewable pilot in one condition area. It should measure retrieval precision, product-linking accuracy, extraction completeness, and reviewer burden before the approach is expanded across databases or used to create automated product assertions.
+
+## Technical traceability
+
+The narrative workflow maps directly to inspectable implementation points. Links below open the relevant function or class in the repository.
+
+| Workflow responsibility | Implementation entry point | Related documentation |
+|---|---|---|
+| Construct the DrugBank baseline | [`initialize_master_database()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/initialize_master_database.py#L100) | [DrugBank source](../sources/drugbank.qmd) |
+| Normalize incoming names | [`normalize_name()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/medication_enrichment.py#L127) | [Detailed process](process.qmd) |
+| Resolve a name to RxCUI and related RxNorm concepts | [`rxnorm_lookup()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/medication_enrichment.py#L209) | [Enrichment-assisted resolution](process.qmd#phase-2-enrichment-assisted-resolution) |
+| Expand RxCUI evidence through UMLS | [`umls_expand()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/medication_enrichment.py#L303) | [Master-record identifiers](../data-model/master-record-schema.qmd#identifiers-structure) |
+| Simplify unresolved names and retry RxNorm | [`llm_normalize_for_rxnorm()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/medication_enrichment.py#L423) | [Enrichment-assisted resolution](process.qmd#phase-2-enrichment-assisted-resolution) |
+| Orchestrate single-product enrichment | [`enrich_single_item()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/medication_enrichment.py#L662) | [Detailed process](process.qmd) |
+| Build reusable name, RxCUI, ATC, and CUI indices | [`build_search_indices()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/medication_enrichment.py#L613) | [Integration and matching](../integration/index.qmd) |
+| Validate partner and community nominations | [`product_intake_template()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/app.py#L612), [`validate_product_intake()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/app.py#L648) | [Partner and community product intake](#partner-and-community-product-intake) |
+| Resolve nominated products into the registry | [`process_intake()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/product_intake.py#L54) | [Partner and community product intake](#partner-and-community-product-intake) |
+| Discover recent candidates through condition-first trial searches | [`clinical_trials_intake.py`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/product_intake/clinical_trials_intake.py#L81) | [ClinicalTrials.gov enrichment](../integration/clinical-trials.qmd) |
+| Integrate EML evidence | [`integrate_eml()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/integrate_eml.py#L172) | [EML integration](../integration/essential-medicines-lists.qmd) |
+| Harmonize and integrate NRA evidence | [`run_nra_harmonization()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/harmonize_nra_data.py#L85), [`integrate_nra()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/integrate_nra.py#L106) | [NRA capture](../sources/national-regulatory-authorities.qmd), [NRA integration](../integration/national-regulatory-authorities.qmd) |
+| Integrate WHO PQ evidence | [`integrate_who_pq()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/integrate_who_pq.py#L140) | [WHO PQ source](../sources/who-prequalification.qmd) |
+| Retrieve ClinicalTrials.gov records | [`CTGovV2Client`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/clinicaltrials_gov/ctgov_api.py#L35) | [ClinicalTrials.gov enrichment](../integration/clinical-trials.qmd) |
+| Select the clinical evidence roles | [`select_studies_for_product()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/integrate_clinical_trials.py#L36) | [Three views of clinical history](../integration/clinical-trials.qmd#step-4-preserve-three-views-of-clinical-history) |
+| Integrate eligible IGH records | [`integrate_igh()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/integrate_igh.py#L150) | [IGH workflow](process.qmd#attach-innovation-guide-horizon-membership) |
+| Apply the FDA confidence policy | [`classify_match()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/integrate_fda.py#L72), [`integrate_fda()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/scripts/integrate_fda.py#L190) | [FDA confidence gate](process.qmd#attach-confidence-gated-fda-evidence) |
+| Normalize the analytical model | [`build_data_model()`](https://github.com/souzajvp/ALIGN-drug-pipeline/blob/main/data_model/build_data_model.py#L291) | [Relational data model](../data-model/index.qmd) |
+
+## Continue through the documentation
+
+- [Detailed pipeline process](process.qmd) follows the workflow stage by stage, including inputs, decisions, and output contracts.
+- [Data sources](../sources/index.qmd) documents provenance, capture, and the meaning of upstream datasets.
+- [Integration and matching](../integration/index.qmd) records source-specific matching hierarchies and review rules.
+- [Master-record schema](../data-model/master-record-schema.qmd) defines the cumulative product profile.
+- [Generated and proposed figures](figures.qmd) contains run-level diagnostics and the broader visual-documentation backlog.

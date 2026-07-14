@@ -1,0 +1,467 @@
+---
+title: "DrugBank Dataset Metadata"
+author: "ALIGN Consortium"
+date: last-modified
+---
+
+# Introduction
+
+This document describes the **DrugBank datasets used in the ALIGN pipeline**.  
+The purpose of this report is to document:
+
+- Where the DrugBank data comes from
+- What files are downloaded and how they are processed
+- The meaning of the `drugbank_type` categories used in the pipeline
+
+DrugBank is a curated database containing detailed information on drugs, their chemical properties, targets, and links to external biomedical databases. The ALIGN pipeline uses DrugBank primarily to help **identify therapeutic products and link them to external identifiers** such as RxNorm, CAS numbers, PubChem identifiers, and other drug registries.
+
+This documentation provides **metadata describing the source, structure, and meaning of the DrugBank datasets used in the pipeline**.
+
+# Data Source
+
+## DrugBank
+
+**Provider:** DrugBank Online  
+**Website:** https://www.drugbank.com  
+**Developer documentation:** https://dev.drugbank.com  
+
+DrugBank provides downloadable datasets that contain curated information about drugs, their identifiers, chemical properties, biological targets, and links to external biomedical resources.
+
+The ALIGN pipeline downloads DrugBank data using the official download endpoints provided by DrugBank. These downloads require authenticated access using DrugBank credentials.
+
+The pipeline currently uses **DrugBank Release 5.1.15**.
+
+# Data Download Pipeline
+
+DrugBank datasets are downloaded using the script:
+
+```
+scripts/download_drugbank.py
+```
+
+The script performs the following steps:
+
+1. Authenticates to DrugBank using credentials stored in a `.env` file.
+2. Downloads multiple DrugBank datasets using the DrugBank release API.
+3. Extracts the CSV files contained in each downloaded archive.
+4. Adds a variable called `drugbank_type` describing the dataset category.
+5. Concatenates all datasets into a single file:
+
+```
+data/Drugbank/drugbank_all_drug_links.csv
+```
+
+This file is used downstream in the ALIGN pipeline to map DrugBank identifiers to other biomedical identifiers.
+
+# DrugBank Category Vocabulary
+
+DrugBank assigns drugs to several **status and modality categories**. These categories describe how a drug is classified in the DrugBank knowledgebase.
+
+The definitions below were **extracted verbatim from the DrugBank developer documentation pages** listed in the source links.
+
+## Approved Drug
+
+**Synonyms**
+- Approval
+- Approved
+- Drug approval
+
+**Definition**
+
+In DrugBank the status of approved is given to the drugs that have been officially accepted for commercialization in at least one jurisdiction at a given time.
+
+Due to the presence of different regulatory agencies around the world, once a drug is approved, this status will remain in the drug card even if the drug is later withdrawn from the market in a particular jurisdiction or under investigation for a different indication.
+
+It is very common to see drugs with different statuses and thus, to confirm the status in a determinate jurisdiction, it is recommended to consult the "Product" section in the drug card.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/approved-drug
+
+
+## Small Molecule Drug
+
+**Synonyms**
+- Small Molecule
+- Small molecule drug
+
+**Definition**
+
+Low molecular weight drugs (900 daltons) which are produced by chemical synthesis. These drugs have well defined structures and chemical properties.
+
+In DrugBank, some drugs larger than 900 daltons are considered small molecule drugs (such as monomers: ribo- or deoxyribonucleotides, amino acids, and monosaccharides).
+
+In DrugBank, drugs are organized at the highest level into Small Molecule Drugs and Biotech Drugs.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/small-molecule
+
+## Biotech Drug
+
+**Synonyms**
+- Biologic
+- Biologics
+- Biopharmaceutical
+- Biotech drugs
+
+**Definition**
+
+Drugs with a biological origin (manufactured in, extracted from, or semisynthesized from biological sources).
+
+These include vaccines, blood, blood components, allergenics, somatic cells, gene therapies, tissues, recombinant therapeutic protein, and living cells used in cell therapy.
+
+Biotech drugs are also known as biopharmaceuticals or biologics.
+
+In DrugBank, drugs are organized at the highest level into Biotech Drugs and Small Molecule Drugs.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/biotech
+
+
+## Experimental Drug
+
+**Synonyms**
+- Discovery phase drug
+- Experimental
+- Pre-discovery phase drug
+
+**Definition**
+
+In DrugBank an experimental drug, also referred as a drug in discovery or pre-discovery phase, alludes to the drug development status in which the drug is being researched pre-clinically.
+
+A discovery phase drug is being actively pursued but has not entered clinical trials.
+
+A pre-discovery phase drug is known to exhibit drug-like properties but has not been formally considered as a drug candidate.
+
+The experimental category in DrugBank captures both of these phases.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/experimental-drug
+
+
+## Nutraceutical Drug
+
+**Definition**
+
+In DrugBank, nutraceuticals are drugs which are regulated and processed at a pharmaceutical grade and have a demonstrable nutritional effect.
+
+Another major characteristic of nutraceuticals is that they do not always have a patent protection even when used as therapeutic agents.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/nutraceutical-drug
+
+
+## Illicit Drug
+
+**Synonyms**
+- Scheduled drug
+
+**Definition**
+
+In DrugBank this status is given to drugs whereby their use has been prohibited due to either the stimulation or inhibition of the central nervous system or due to the production of hallucinogenic effects.
+
+Illicit drugs are often scheduled drugs, whereby they are approved but are limited in their distribution or have additional constraints on how they can be prescribed.
+
+Drug scheduling varies across jurisdictions.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/illicit-drug
+
+
+## Withdrawn Drug
+
+**Synonyms**
+- Withdrawl
+- Withdrawn
+
+**Definition**
+
+In DrugBank this state is given to the drugs that have been discontinued.
+
+Although the reason as to why such drugs are withdrawn can range from patient safety and toxicity issues to limited commercial viability, the formal rationale behind such decisions lies typically with the regional or national public health administration that issued the withdrawal.
+
+A drug maintains its drug approval status even once withdrawn, as approval indicates that it has been approved at some point in time.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/withdrawn-drug
+
+## Investigational Drug
+
+**Synonyms**
+- IND
+
+**Definition**
+
+In DrugBank an investigational drug refers to the drug development status in which the drug is being researched for a determinate condition and has reached clinical trials.
+
+A drug can have multiple statuses filled if for example, it has been approved for a determinate indication but it
+is currently on clinical trials for a different indication.
+
+**Source**  
+https://dev.drugbank.com/guides/terms/investigational-drug
+
+# Conceptual Model
+
+DrugBank categories represent **different conceptual axes**.
+
+A drug can belong to more than one category simultaneously.
+
+| Axis | Categories |
+|--|--|
+| Modality | Small Molecule, Biotech |
+| Development Stage | Experimental, Investigational |
+| Regulatory Status | Approved, Withdrawn |
+| Special Classification | Nutraceutical, Illicit |
+
+# Role in the ALIGN Pipeline
+
+Within the ALIGN horizon scanning pipeline, DrugBank provides:
+
+- Cross‑database drug identifiers
+- Links to chemical and pharmacological resources
+- A vocabulary for identifying therapeutic products
+
+The `drugbank_type` variable added during ingestion is used to preserve the **source category of each dataset**.
+
+These categories help contextualize therapeutic products when integrating DrugBank data with:
+
+- WHO Essential Medicines Lists
+- National regulatory authority data
+- Clinical trial registries
+- Pharmaceutical innovation pipelines
+
+This metadata document therefore provides **reference definitions for the vocabulary used in the DrugBank integration layer of the ALIGN pipeline**.
+
+# Dataset Inventory
+
+The following section inspects the **DrugBank datasets stored locally in the repository** under:
+
+```text
+data/Drugbank/
+```
+
+The purpose of this step is to verify that the DrugBank ingestion pipeline executed successfully and to provide a quick overview of the datasets currently available.
+
+For each file we report:
+
+* whether the file exists
+* the file location
+* the number of rows
+* the number of variables (columns)
+
+This allows users of the ALIGN pipeline to quickly confirm that the expected DrugBank datasets were downloaded and assembled correctly.
+
+```{python}
+from pathlib import Path
+import pandas as pd
+from IPython.display import display, Markdown
+
+# Robust project root resolution
+PROJECT_ROOT = Path.cwd()
+while not (PROJECT_ROOT / "data").exists() and PROJECT_ROOT.parent != PROJECT_ROOT:
+    PROJECT_ROOT = PROJECT_ROOT.parent
+
+DRUGBANK_DIR = PROJECT_ROOT / "data" / "Drugbank"
+
+COLUMN_MAPPING = {
+    "DrugBank ID": "DrugBank ID (Primary Accession Number)",
+    "CAS Number": "CAS Registry Number",
+    "Drug Type": "Type",
+    "KEGG Compound ID": "KEGG Compound ID",
+    "KEGG Drug ID": "KEGG Drug ID",
+    "PubChem Compound ID": "PubChem Compound ID",
+    "PubChem Substance ID": "PubChem Substance ID",
+    "ChEBI ID": "ChEBI ID",
+    "PharmGKB ID": "PharmGKB ID",
+    "HET ID": "HET ID",
+    "UniProt ID": "UniProt ID/Name",
+    "UniProt Title": "UniProt ID/Name",
+    "GenBank ID": "GenBank ID",
+    "DPD ID": "Drug Product ID",
+    "RxList Link": "RxList Link",
+    "Pdrhealth Link": "PDRhealth Link",
+    "Wikipedia ID": "Wikipedia Link",
+    "Drugs.com Link": "Drugs.com Link",
+    "NDC ID": "Packaging Companies",
+    "ChemSpider ID": "ChemSpider ID",
+    "BindingDB ID": "BindingDB ID",
+    "TTD ID": "Therapeutic Targets Database (TTD) ID",
+}
+
+DATASETS = [
+    ("Merged Drug Links", DRUGBANK_DIR / "drugbank_all_drug_links.csv"),
+    ("Drug Links", DRUGBANK_DIR / "drug_links.csv"),
+    ("DrugBank Dictionary", DRUGBANK_DIR / "drugbank_dictionary_cleaned.csv")
+]
+
+inventory = []
+
+for label, path in DATASETS:
+
+    exists = path.exists()
+
+    if exists:
+        df = pd.read_csv(path, low_memory=False)
+        rows, cols = df.shape
+    else:
+        rows, cols = None, None
+
+    inventory.append({
+        "dataset": label,
+        "path": str(path.relative_to(PROJECT_ROOT)),
+        "exists": exists,
+        "rows": rows,
+        "columns": cols
+    })
+
+inventory_df = pd.DataFrame(inventory)
+
+display(inventory_df)
+```
+
+This table provides a quick overview of the **DrugBank datasets currently available in the local data directory**.
+
+---
+
+# Dataset Variable Summaries
+
+After confirming that the files exist, we inspect the **internal structure of each dataset**.
+
+For each dataset we report:
+
+* number of rows
+* number of columns
+* counts by `drugbank_type` (when available)
+* a summary of each variable including:
+
+  * data type
+  * number of missing values
+  * number of unique values
+
+This step helps ensure that the DrugBank files are structured as expected before they are integrated with other datasets in the ALIGN pipeline.
+
+```{python}
+def summarize_dataframe(df, dict_df=None, mapping=None):
+
+    rows = []
+
+    for col in df.columns:
+
+        series = df[col]
+
+        description = ""
+        sources = ""
+
+        if dict_df is not None and mapping is not None:
+            dict_field = mapping.get(col)
+            if dict_field:
+                match = dict_df[dict_df["Field"] == dict_field]
+                if not match.empty:
+                    description = match["Description"].values[0]
+                    sources = match["Sources"].values[0]
+
+        rows.append({
+            "variable": col,
+            "description": description,
+            "sources": sources,
+            "dtype": str(series.dtype),
+            "non_null": series.notna().sum(),
+            "missing": series.isna().sum(),
+            "unique_values": series.nunique()
+        })
+
+    return pd.DataFrame(rows)
+```
+
+---
+
+## Dataset Summaries
+
+The following section iterates through each DrugBank dataset and produces a structural summary.
+
+```{python}
+dict_path = DRUGBANK_DIR / "drugbank_dictionary_cleaned.csv"
+dict_df = pd.read_csv(dict_path) if dict_path.exists() else None
+
+for label, path in DATASETS:
+
+    if not path.exists():
+        continue
+
+    display(Markdown(f"## {label}"))
+
+    df = pd.read_csv(path, low_memory=False)
+
+    display(Markdown(
+        f"""
+Rows: **{len(df):,}**  
+Columns: **{df.shape[1]}**
+"""
+    ))
+
+    if "drugbank_type" in df.columns:
+
+        display(Markdown("### Counts by `drugbank_type`"))
+
+        display(
+            df["drugbank_type"]
+            .value_counts()
+            .to_frame(name="count")
+        )
+
+    display(Markdown("### Variable summary"))
+
+    display(summarize_dataframe(df, dict_df=dict_df, mapping=COLUMN_MAPPING))
+
+```
+
+---
+
+# Interpretation
+
+The summaries above provide a quick validation that the DrugBank datasets were downloaded and processed correctly.
+
+In practice:
+
+* **`drugbank_all_drug_links.csv`** is the primary integration table used in the ALIGN pipeline.
+* **`drug_links.csv`** contains individual DrugBank identifier link mappings.
+* **`drugbank_dictionary_cleaned.csv`** provides a variable dictionary describing the structure and source of the DrugBank link fields.
+
+These summaries help ensure that the datasets contain the expected identifiers before integrating them with other sources such as:
+
+* WHO Essential Medicines Lists
+* National regulatory authority datasets
+* Clinical trial registries
+* pharmaceutical innovation pipelines.
+
+::: {.callout-note}
+Row-level DrugBank data is intentionally excluded from this public documentation build. Access and use remain subject to the DrugBank license.
+:::
+
+# Variable Interpretations
+
+This section provides a detailed interpretation of the key variables found in the DrugBank datasets used in the ALIGN pipeline.
+
+## Identifier Variables
+
+The ALIGN pipeline relies on multiple identifiers to resolve drug entities across different databases.
+
+- **DrugBank ID**: The primary identifier used to link to the DrugBank database. It is essential for retrieving detailed pharmacological and chemical information.
+- **CAS Number**: The Chemical Abstracts Service registry number. This is a universally recognized identifier for chemical substances and is used as a primary link between DrugBank and other chemical databases.
+- **PubChem Compound ID (CID)**: Links DrugBank records to the PubChem database, providing access to additional chemical properties and biological activity data.
+- **RxList & Drugs.com Links**: These links are used by the pipeline to extract RxNorm identifiers. RxNorm is a critical vocabulary for clinical drugs in the United States and serves as a major bridge for normalization in the ALIGN enrichment process.
+- **ATC Codes**: The Anatomical Therapeutic Chemical Classification System codes. These are used to categorize drugs based on the organ or system on which they act and their therapeutic, pharmacological, and chemical properties.
+
+## Record Provenance (`drugbank_type`)
+
+The `drugbank_type` variable is an internal field added during the ALIGN ingestion process. It tracks the specific DrugBank dataset from which a record was extracted.
+
+This variable is crucial for understanding the **provenance and status** of a drug record:
+
+- **approved**: Indicates the drug has been approved in at least one jurisdiction.
+- **experimental**: Refers to drugs in the discovery or pre-discovery phase.
+- **investigational**: Refers to drugs that have reached clinical trials.
+- **withdrawn**: Indicates the drug has been discontinued or withdrawn from the market.
+- **nutraceutical**: Indicates the drug is regulated as a nutraceutical.
+- **illicit**: Indicates the drug's use is prohibited in certain jurisdictions.
+
+By preserving this information, the ALIGN pipeline can filter or prioritize drugs based on their development stage or regulatory status when integrating with other data sources like National Regulatory Authority (NRA) lists or Essential Medicines Lists (EML).

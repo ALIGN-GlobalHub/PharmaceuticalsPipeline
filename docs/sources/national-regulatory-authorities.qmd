@@ -1,0 +1,150 @@
+---
+title: "NRA Data Capture and Harmonization"
+description: "Documentation of the scraping, data capture, and harmonization process for National Regulatory Authorities (NRA) - Kenya, South Africa, and Senegal."
+author: "ALIGN-Pipeline"
+date: last-modified
+---
+
+# Overview
+
+This document describes the methodology used to scrape, capture, and harmonize product data from the National Regulatory Authorities (NRA) of Kenya, South Africa, and Senegal. The captured data includes medicines and medical devices, providing a cross-country view of registered health products.
+
+# Kenya - Pharmacy and Poisons Board (PPB)
+
+## Data Sources
+- **Medicines:** [Public View of Registered Products](https://products.pharmacyboardkenya.org/ppb_admin/pages/public_view_retention_products.php)
+- **Medical Devices:** [Public View of Retained Medical Devices](https://products.pharmacyboardkenya.org/ppb_admin/pages/public_view_md_retained.php)
+
+## Capture Process
+The PPB website uses the `xCRUD` framework. Data is fetched via AJAX POST requests to `xcrud_ajax.php`.
+
+To automate the capture:
+
+1.  **Session Initialization:** A `requests.Session` is used to maintain cookies.
+2.  **Key Extraction:** Initial `instance` and `key` tokens are extracted from the main page's hidden inputs.
+3.  **AJAX Scraping:** Paginated requests are sent with the `list` task. The script dynamically updates the `key` from the response to maintain the session's security integrity.
+4.  **Pagination:** The script iterates through the records until no more rows are returned.
+
+# South Africa - SAHPRA
+
+## Data Sources
+- **Medicines:** [Registered Health Products Database](https://medapps.sahpra.org.za:6006/)
+- **Medical Devices:** [Medical Devices Licences Issued](https://www.sahpra.org.za/medical-devices-licences-issued/)
+
+## Capture Process
+
+### Medical Devices
+The medical devices page uses **Ninja Tables**.
+- The script identifies the `data_request_url` within the page source, which points to a WordPress AJAX endpoint (`admin-ajax.php`).
+- A single GET request retrieves the entire dataset in JSON format.
+
+### Medicines
+The medicines database (MedApps) uses **DataTables** with server-side processing.
+- Data is fetched via AJAX POST requests to `/Home/getData`.
+- By setting a large `length` parameter in the request, we can retrieve records in large chunks.
+- The script also captures the `detail_url` for each product by appending the `secureId` to the base details URL.
+
+# Senegal - ARP
+
+## Data Sources
+- **Medicines:** [Liste des AMMs](https://arp.sn/liste-des-amms/)
+
+## Capture Process
+The Senegal Agence sénégalaise de Réglementation pharmaceutique (ARP) provides a comprehensive list of Marketing Authorizations (AMMs) in a standard HTML table.
+- **Direct Scraping:** The script uses BeautifulSoup to parse the HTML table directly.
+- **Link Capture:** Important documents like the **RCP** (Résumé des Caractéristiques du Produit) and **Product Photos** are embedded as links within the table cells. The scraper extracts these `href` attributes to preserve the provenance and detailed documentation for each product.
+
+# Data Summary by Country
+
+```{python}
+#| label: nra-summary
+#| tbl-cap: "NRA Source Data Summary"
+import pandas as pd
+import os
+import csv
+import sys
+
+csv.field_size_limit(sys.maxsize)
+
+def get_summary(filepath, label):
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+            reader = csv.reader(handle)
+            columns = next(reader, [])
+            entries = sum(1 for row in reader if row)
+        return {
+            "Dataset": label,
+            "Entries": entries,
+            "Variables": len(columns),
+            "Sample Columns": ", ".join(columns[:5]) + "..."
+        }
+    return None
+
+sources = [
+    ("../data/NRA/Kenya/kenya_medicines.csv", "Kenya Medicines"),
+    ("../data/NRA/Kenya/kenya_medical_devices.csv", "Kenya Medical Devices"),
+    ("../data/NRA/South_Africa/south_africa_medicines.csv", "SA Medicines"),
+    ("../data/NRA/South_Africa/south_africa_medical_devices.csv", "SA Medical Devices"),
+    ("../data/NRA/Senegal/senegal_medicines.csv", "Senegal Medicines")
+]
+
+summary_list = []
+for path, label in sources:
+    summary = get_summary(path, label)
+    if summary:
+        summary_list.append(summary)
+
+pd.DataFrame(summary_list)
+```
+
+# Data Harmonization
+
+To enable cross-country analysis and integration into the ALIGN master database, the disparate schemas from Kenya, South Africa, and Senegal are unified into a harmonized format.
+
+## Harmonization Strategy
+The script `scripts/harmonize_nra_data.py` performs the following steps:
+
+1.  **Schema Mapping:** Maps country-specific columns to a standardized set of variables.
+2.  **Product Categorization:** Labels records as 'Medicine', 'Medical Device', or 'Medical Device License'.
+3.  **Provenance Tracking:** Adds `country` and `source_domain` fields to every record.
+4.  **Data Cleaning:** Normalizes whitespace and handles missing values consistently across all sources.
+
+## Harmonized Schema
+The resulting dataset uses the following variables:
+- `nra_id`: The unique identifier assigned by the regulatory authority.
+- `product_name`: The trade or brand name of the product.
+- `generic_name`: The International Nonproprietary Name (INN) or active ingredients.
+- `strength`: The strength/dosage of the ingredients (primarily from Senegal).
+- `dosage_form`: The pharmaceutical form (e.g., tablet, injection).
+- `route`: The route of administration.
+- `manufacturer`: The company holding the authorization or the manufacturer.
+- `status`: The current registration status.
+- `approval_date`: The date the product was registered.
+- `expiry_date`: The date the registration expires.
+- `country`: The country of the NRA.
+- `product_category`: The type of product.
+- `therapeutic_area`: The clinical classification.
+- `source_domain`: The URL of the source database.
+- `id_url`: Direct link to product details or documentation (e.g., RCP, MedApps detail page).
+
+## Harmonized Dataset Summary
+
+```{python}
+#| label: harmonized-summary
+#| tbl-cap: "Harmonized NRA Data Overview"
+
+harmonized_path = "../data/NRA/nra_harmonized.csv"
+if os.path.exists(harmonized_path):
+    df_h = pd.read_csv(harmonized_path)
+
+    print(f"Total Harmonized Records: {len(df_h)}")
+
+    country_counts = df_h['country'].value_counts().reset_index()
+    country_counts.columns = ['Country', 'Count']
+    display(country_counts)
+else:
+    print("Harmonized file not found.")
+```
+
+# Conclusion
+The automated scraping and harmonization pipeline has successfully captured and unified over 34,000 product records from three key African markets. This harmonized dataset provides a robust foundation for identifying regional product availability and supporting the ALIGN-Pipeline's enrichment goals.

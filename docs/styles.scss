@@ -1,0 +1,40 @@
+/*-- scss:defaults --*/
+$primary: #012169;
+$link-color: #00539b;
+$body-color: #2f2f2f;
+$body-bg: #ffffff;
+$font-family-sans-serif: "Inter", "Helvetica Neue", Arial, sans-serif;
+$headings-font-weight: 700;
+
+/*-- scss:rules --*/
+.navbar {
+  border-bottom: 3px solid #00539b;
+}
+
+.sidebar-title {
+  color: #012169;
+  font-weight: 700;
+}
+
+.callout.callout-style-default {
+  border-radius: 0.35rem;
+}
+
+code {
+  color: #7a1f4b;
+}
+
+main ol > li,
+main ul > li {
+  margin-bottom: 0.35rem;
+}
+
+main ol > li:last-child,
+main ul > li:last-child {
+  margin-bottom: 0;
+}
+
+.quarto-title-banner {
+  background: linear-gradient(120deg, #012169, #00539b);
+  color: #ffffff;
+}

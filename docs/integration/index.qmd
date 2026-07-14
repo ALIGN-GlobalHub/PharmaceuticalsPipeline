@@ -1,0 +1,14 @@
+---
+title: "Integration and matching"
+description: "How source records are linked to canonical ALIGN products."
+---
+
+Integration pages document the matching hierarchy, enrichment strategies, new-record rules, and provenance fields used when a source is added to the master registry.
+
+## Current integration documentation
+
+- [Essential medicines lists](essential-medicines-lists.qmd)
+- [National regulatory authorities](national-regulatory-authorities.qmd)
+- [ClinicalTrials.gov enrichment](clinical-trials.qmd)
+
+Each integration should document its input contract, output master-record version, match methods, conflict handling, and audit fields.
