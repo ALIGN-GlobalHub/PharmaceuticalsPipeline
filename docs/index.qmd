@@ -1,5 +1,5 @@
 ---
-title: "ALIGN Drug Pipeline"
+title: "ALIGN Drug Pipeline Documentation"
 subtitle: "Technical documentation for the health-product integration pipeline"
 description: "How ALIGN ingests, resolves, enriches, and publishes health-product evidence."
 page-layout: full
